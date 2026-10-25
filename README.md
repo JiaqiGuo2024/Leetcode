@@ -6,13 +6,13 @@
 ## 进度
 
 - 目标：200 题
-- 已完成：0 / 200（0.0%）
+- 已完成：1 / 200（0.5%）
 - 进行中：0
-- 待完成：100
+- 待完成：99
 
 | 顺序 | # | 专题 | 题目 | 难度 | 状态 | 完成日期 | 用时 | 复习日 |
 |---:|---:|---|---|---|---|---|---:|---|
-| 1 | 1 | 哈希 | [两数之和](https://leetcode.cn/problems/two-sum/) | Easy | 待完成 | - | - | - |
+| 1 | 1 | 哈希 | [两数之和](https://leetcode.cn/problems/two-sum/) | Easy | 已完成 | 2026-10-25 | 20 分 | 2026-10-26, 2026-10-28, 2026-11-01, 2026-11-08, 2026-11-24 |
 | 2 | 49 | 哈希 | [字母异位词分组](https://leetcode.cn/problems/group-anagrams/) | Medium | 待完成 | - | - | - |
 | 3 | 128 | 哈希 | [最长连续序列](https://leetcode.cn/problems/longest-consecutive-sequence/) | Medium | 待完成 | - | - | - |
 | 4 | 283 | 双指针 | [移动零](https://leetcode.cn/problems/move-zeroes/) | Easy | 待完成 | - | - | - |

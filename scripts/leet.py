@@ -19,6 +19,7 @@ DB_PATH = ROOT / "progress.json"
 README_PATH = ROOT / "README.md"
 PROBLEMS_DIR = ROOT / "problems"
 TEMPLATES_DIR = ROOT / "templates"
+DATA_DIR = ROOT / "data"
 PROGRESS_START = "<!-- PROGRESS:START -->"
 PROGRESS_END = "<!-- PROGRESS:END -->"
 VALID_DIFFICULTIES = {"Easy", "Medium", "Hard"}
@@ -80,6 +81,17 @@ def save_problem_metadata(problem: dict[str, Any]) -> None:
     write_json(directory / "problem.json", problem)
 
 
+def materialize_problem(problem: dict[str, Any]) -> Path:
+    directory = problem_dir(problem)
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in ("attempt.md", "notes.md", "solution.cpp", "test.cpp"):
+        destination = directory / name
+        if not destination.exists():
+            shutil.copy2(TEMPLATES_DIR / name, destination)
+    save_problem_metadata(problem)
+    return directory
+
+
 def status_label(status: str) -> str:
     return {"todo": "待完成", "doing": "进行中", "solved": "已完成"}.get(
         status, status
@@ -87,7 +99,10 @@ def status_label(status: str) -> str:
 
 
 def render_progress(data: dict[str, Any]) -> str:
-    problems = sorted(data["problems"], key=lambda item: int(item["number"]))
+    problems = sorted(
+        data["problems"],
+        key=lambda item: (int(item.get("order", 10_000)), int(item["number"])),
+    )
     target = int(data.get("target", 200))
     solved = sum(item.get("status") == "solved" for item in problems)
     doing = sum(item.get("status") == "doing" for item in problems)
@@ -101,12 +116,12 @@ def render_progress(data: dict[str, Any]) -> str:
         f"- 进行中：{doing}",
         f"- 待完成：{len(problems) - solved - doing}",
         "",
-        "| # | 题目 | 难度 | 状态 | 完成日期 | 用时 | 复习日 |",
-        "|---:|---|---|---|---|---:|---|",
+        "| 顺序 | # | 专题 | 题目 | 难度 | 状态 | 完成日期 | 用时 | 复习日 |",
+        "|---:|---:|---|---|---|---|---|---:|---|",
     ]
     if not problems:
         lines.append(
-            "| - | 还没有题目。运行 `python scripts/leet.py new ...` 添加第一题。 | - | - | - | - | - |"
+            "| - | - | - | 还没有题目。运行 `python scripts/leet.py seed hot100` 导入题单。 | - | - | - | - | - |"
         )
     else:
         for item in problems:
@@ -116,8 +131,10 @@ def render_progress(data: dict[str, Any]) -> str:
             minutes = f"{item['minutes']} 分" if item.get("minutes") is not None else "-"
             reviews = ", ".join(item.get("review_dates", [])) or "-"
             lines.append(
-                "| {number} | {title} | {difficulty} | {status} | {solved_at} | {minutes} | {reviews} |".format(
+                "| {order} | {number} | {topic} | {title} | {difficulty} | {status} | {solved_at} | {minutes} | {reviews} |".format(
+                    order=item.get("order", "-"),
                     number=item["number"],
+                    topic=str(item.get("topic", "-")).replace("|", "\\|"),
                     title=title_cell,
                     difficulty=item["difficulty"],
                     status=status_label(item.get("status", "todo")),
@@ -155,6 +172,11 @@ def command_new(args: argparse.Namespace) -> None:
         "slug": args.slug,
         "title": args.title,
         "difficulty": normalize_difficulty(args.difficulty),
+        "order": max(
+            (int(item.get("order", 0)) for item in data["problems"]), default=0
+        )
+        + 1,
+        "topic": args.topic or "自选扩展",
         "url": args.url or "",
         "status": "todo",
         "created_at": date.today().isoformat(),
@@ -164,11 +186,7 @@ def command_new(args: argparse.Namespace) -> None:
         "review_days": [],
         "review_dates": [],
     }
-    directory = problem_dir(problem)
-    directory.mkdir(parents=True, exist_ok=False)
-    for name in ("attempt.md", "notes.md", "solution.cpp", "test.cpp"):
-        shutil.copy2(TEMPLATES_DIR / name, directory / name)
-    save_problem_metadata(problem)
+    directory = materialize_problem(problem)
     data["problems"].append(problem)
     save_db(data)
     update_readme(data)
@@ -178,6 +196,7 @@ def command_new(args: argparse.Namespace) -> None:
 def command_start(args: argparse.Namespace) -> None:
     data = load_db()
     problem = find_problem(data, args.problem)
+    materialize_problem(problem)
     if problem.get("status") == "solved":
         print(f"#{problem['number']} {problem['title']} 已完成，将作为复习题打开。")
     else:
@@ -199,7 +218,11 @@ def command_next(_: argparse.Namespace) -> None:
         item for item in data["problems"] if item.get("status") in {"doing", "todo"}
     ]
     candidates.sort(
-        key=lambda item: (0 if item.get("status") == "doing" else 1, int(item["number"]))
+        key=lambda item: (
+            0 if item.get("status") == "doing" else 1,
+            int(item.get("order", 10_000)),
+            int(item["number"]),
+        )
     )
     if not candidates:
         if data["problems"]:
@@ -217,6 +240,7 @@ def command_next(_: argparse.Namespace) -> None:
                 "title": item["title"],
                 "slug": item["slug"],
                 "difficulty": item["difficulty"],
+                "topic": item.get("topic", ""),
                 "status": item["status"],
                 "url": item.get("url", ""),
                 "directory": str(problem_dir(item).relative_to(ROOT)),
@@ -240,7 +264,7 @@ def parse_review_days(value: str) -> list[int]:
 def command_done(args: argparse.Namespace) -> None:
     data = load_db()
     problem = find_problem(data, args.problem)
-    directory = problem_dir(problem)
+    directory = materialize_problem(problem)
     if not (directory / "solution.cpp").exists():
         raise WorkflowError(f"缺少答案文件：{directory / 'solution.cpp'}")
     solved_day = date.today()
@@ -343,7 +367,8 @@ def validate_data(data: dict[str, Any], compile_tests: bool) -> None:
             errors.append(f"题号 {number} 难度无效：{item.get('difficulty')}")
         directory = problem_dir(item)
         if not directory.is_dir():
-            errors.append(f"缺少目录：{directory.relative_to(ROOT)}")
+            if item.get("status") != "todo":
+                errors.append(f"缺少目录：{directory.relative_to(ROOT)}")
             continue
         missing = sorted(name for name in required if not (directory / name).exists())
         if missing:
@@ -358,7 +383,49 @@ def validate_data(data: dict[str, Any], compile_tests: bool) -> None:
         raise WorkflowError("校验失败：\n- " + "\n- ".join(errors))
     if compile_tests:
         for item in sorted(data["problems"], key=lambda value: value["number"]):
-            compile_and_run(item, run_binary=True)
+            if problem_dir(item).is_dir():
+                compile_and_run(item, run_binary=True)
+
+
+def command_seed(args: argparse.Namespace) -> None:
+    data = load_db()
+    source = DATA_DIR / f"{args.list_name}.json"
+    if not source.exists():
+        raise WorkflowError(f"找不到内置题单：{args.list_name}")
+    try:
+        items = json.loads(source.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise WorkflowError(f"题单格式错误：{exc}") from exc
+    existing_numbers = {int(item["number"]) for item in data["problems"]}
+    existing_slugs = {item["slug"] for item in data["problems"]}
+    added = 0
+    for position, item in enumerate(items, start=1):
+        if int(item["number"]) in existing_numbers or item["slug"] in existing_slugs:
+            continue
+        problem = {
+            "number": int(item["number"]),
+            "slug": item["slug"],
+            "title": item["title"],
+            "difficulty": normalize_difficulty(item["difficulty"]),
+            "order": position,
+            "topic": item["topic"],
+            "url": item.get("url")
+            or f"https://leetcode.cn/problems/{item['slug']}/",
+            "status": "todo",
+            "created_at": date.today().isoformat(),
+            "started_at": None,
+            "solved_at": None,
+            "minutes": None,
+            "review_days": [],
+            "review_dates": [],
+        }
+        data["problems"].append(problem)
+        existing_numbers.add(problem["number"])
+        existing_slugs.add(problem["slug"])
+        added += 1
+    save_db(data)
+    update_readme(data)
+    print(f"已从 {args.list_name} 导入 {added} 道题；当前队列共 {len(data['problems'])} 道。")
 
 
 def command_validate(args: argparse.Namespace) -> None:
@@ -448,6 +515,7 @@ def build_parser() -> argparse.ArgumentParser:
     new_parser.add_argument("title", help="中文或英文题名")
     new_parser.add_argument("difficulty", help="Easy / Medium / Hard")
     new_parser.add_argument("--url", default="", help="题目链接")
+    new_parser.add_argument("--topic", default="", help="专题标签")
     new_parser.set_defaults(func=command_new)
 
     for name, help_text, handler in (
@@ -468,6 +536,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     next_parser = subparsers.add_parser("next", help="显示下一题")
     next_parser.set_defaults(func=command_next)
+
+    seed_parser = subparsers.add_parser("seed", help="导入内置题单")
+    seed_parser.add_argument("list_name", choices=["hot100"], help="题单名称")
+    seed_parser.set_defaults(func=command_seed)
 
     stats_parser = subparsers.add_parser("stats", help="更新 README 统计")
     stats_parser.set_defaults(func=command_stats)

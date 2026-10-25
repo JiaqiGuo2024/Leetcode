@@ -1,5 +1,6 @@
 # Build products
 build/
+.tools/
 *.exe
 *.out
 *.o

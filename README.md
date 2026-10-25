@@ -174,7 +174,7 @@ python3 scripts/leet.py sync "solve: 题号 题名"
 - `data/hot100.json`：官方 Hot 100 的本地题单快照。
 - `problems/`：每题一个目录，保留自己的尝试与最终解法。
 - `templates/`：新题模板。
-- `.github/workflows/validate.yml`：每次推送自动校验数据并编译有测试入口的题目。
+- `python3 scripts/leet.py validate --compile`：推送前校验数据，并编译有测试入口的题目。
 - `PROMPTS.md`：可直接复制给 AI 的常用指令。
 
 题目原文不复制进仓库，只保存链接和个人总结，便于保持仓库简洁。
